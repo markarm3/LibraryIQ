@@ -130,7 +130,8 @@ class BookModel extends Model
         ];
         
         foreach ($urls as $url) {
-            log_message('info', "Trying URL: {$url}");
+            $safeUrl = preg_replace('/([?&])key=[^&]*/', '$1key=***', $url);
+            log_message('info', "Trying URL: {$safeUrl}");
             
             // Use cURL for better error handling
             $ch = curl_init();
@@ -138,7 +139,7 @@ class BookModel extends Model
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, 15);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_USERAGENT, 'LibraryManager/1.0');
+            curl_setopt($ch, CURLOPT_USERAGENT, 'LibraryIQ/1.0');
             
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -153,21 +154,30 @@ class BookModel extends Model
             }
             
             if ($httpCode !== 200 || !$response) {
-                log_message('warning', "HTTP Error: {$httpCode}, Response: " . substr($response, 0, 100));
+                log_message('error', "Google Books HTTP {$httpCode}: " . substr((string) $response, 0, 500));
                 continue;
             }
             
             $data = json_decode($response, true);
             
             if (!$data) {
-                log_message('warning', "JSON decode failed for URL: {$url}");
+                log_message('error', 'Google Books JSON decode failed for ISBN lookup.');
+                continue;
+            }
+
+            if (isset($data['error'])) {
+                $err = $data['error'];
+                $msg = is_array($err)
+                    ? (($err['message'] ?? '') . ' (code ' . ($err['code'] ?? '?') . ')')
+                    : (string) $err;
+                log_message('error', 'Google Books API error: ' . $msg);
                 continue;
             }
             
-            log_message('info', "API Response: " . json_encode(array_keys($data)));
+            log_message('info', 'API Response keys: ' . json_encode(array_keys($data)));
             
             if (!isset($data['items']) || empty($data['items'])) {
-                log_message('info', "No items found in API response");
+                log_message('error', 'Google Books returned no items for this ISBN (totalItems: ' . ($data['totalItems'] ?? 'n/a') . ').');
                 continue;
             }
             
